@@ -1,53 +1,48 @@
+// server.js
 
 require('dotenv').config();
-
 const express = require('express');
-const { Pool } = require('pg'); 
-const cors = require('cors'); 
+const cors = require('cors');
+const pool = require('./db');
+const { authenticateToken, authorizeRole } = require('./middleware/auth.middleware');
 
 const app = express();
-const PORT = process.env.PORT || 5000; 
+const PORT = process.env.PORT || 5000;
 
-const usersRoutes = require('./routes/users_routes.js'); 
+app.use(cors());
+app.use(express.json());
 
-// --- Middleware ---
-app.use(cors()); 
-app.use(express.json()); 
+// --- Import Routers ---
+const authRoutes = require('./routes/auth.routes.js')(pool);
+const usersRoutes = require('./routes/users.routes.js')(pool);
+const eventsRoutes = require('./routes/events.routes.js')(pool); // This should now handle all its own sub-routes
+const adminRoutes = require('./routes/admin.routes.js')(pool);
 
-// --- PostgreSQL Database Connection Pool ---
-const pool = new Pool({
-  user: process.env.DB_USER,
-  host: process.env.DB_HOST,
-  database: process.env.DB_DATABASE,
-  password: process.env.DB_PASSWORD,
-  port: process.env.DB_PORT,
-});
+// --- API Routes ---
 
-// Test the database connection when the server starts
-pool.connect((err, client, release) => {
-  if (err) {
-    return console.error('Error acquiring client from pool:', err.stack);
-  }
-  console.log('Successfully connected to PostgreSQL database!');
-  client.query('SELECT NOW()', (err, result) => {
-    release(); // Release the client back to the pool
-    if (err) {
-      return console.error('Error executing test query', err.stack);
-    }
-    console.log('Database test query (SELECT NOW()) result:', result.rows[0].now);
-  });
-});
-
-
-// Basic welcome route
+// Public Welcome Route
 app.get('/', (req, res) => {
   res.send('Welcome to the Community Hub Backend API!');
 });
 
+// Authentication Routes (Public)
+app.use('/api/auth', authRoutes);
 
-app.use('/api/users', usersRoutes);
+// Protected User Routes (Auth required)
+app.use('/api/users', authenticateToken, usersRoutes);
+
+// *** CORRECTED EVENTS ROUTES MOUNTING ***
+// Mount the entire events router at /api/events
+app.use('/api/events', eventsRoutes);
+
+// Protected Admin Routes (Auth & Admin Role required)
+app.use('/api/admin', authenticateToken, authorizeRole(['admin']), adminRoutes);
+
+// Health check endpoint
+app.get('/health', (req, res) => {
+  res.status(200).send('Backend is healthy!');
+});
 
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`Access the backend at: http://localhost:${PORT}`);
 });
